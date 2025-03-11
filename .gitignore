@@ -2,6 +2,9 @@
 First_agent_template/
 agents_course_hf/data/*
 
+sbm_rag/data/*
+sbm_rag/intermediate_embeddings/*
+.env
 # Ignore all pptx files
 *.pptx
 
