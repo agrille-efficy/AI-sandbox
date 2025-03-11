@@ -1,0 +1,18 @@
+# Ignore the First_agent_template directory
+First_agent_template/
+agents_course_hf/data/*
+
+# Ignore all pptx files
+*.pptx
+
+# Ignore the entire pptx folder
+pptx/
+
+# Ignore VSCode settings
+.vscode/
+
+# Ignore database files
+*.db
+
+# Ignore credentials 
+agents_course_hf/.env
