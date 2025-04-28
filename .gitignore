@@ -19,3 +19,5 @@ pptx/
 
 # Ignore credentials 
 agents_course_hf/.env
+
+*sqlite
