@@ -1,16 +1,36 @@
 from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
 from langchain.tools import Tool
 from langchain_openai import ChatOpenAI
 import base64 
 from langchain_core.messages import HumanMessage
 from dotenv import load_dotenv
 import os
+# from lanchain_community.tools.wolfram_alpha import WolframAlphaQueryRun
 
 load_dotenv(r"C:\Projects\RAG_PoC\agents_course_hf\.env")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
-search_tool = DuckDuckGoSearchRun()
+# search_tool = DuckDuckGoSearchRun()
+search = DuckDuckGoSearchAPIWrapper()
+
+def search_function(query: str) -> str:
+    """Search the web for information."""
+    try:
+        results = search.run(query)
+        if not results or results.strip() == "":
+            return "No search results found. Please try a different query."
+        return results
+    except Exception as e:
+        return f"Error during search: {str(e)}"
+
+
+search_tool = Tool(
+    name="duckduckgo_search_tool",
+    description="Search the web for infromation about recent events, facts, or anything that requires up-to-date information.",
+    func=search_function
+)
 
 vision_llm = ChatOpenAI(model="gpt-4o")
 
@@ -68,8 +88,11 @@ analyze_image_tool = Tool(
 )
 
 def analyze_text(text: str) -> str:
+    """Analyzes a text and returns a detailled description of it."""
     return ""
 
-def math_calculator():
-    return
+# def math_tool():
+
+
+#     return
 
