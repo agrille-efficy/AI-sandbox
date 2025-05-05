@@ -30,42 +30,32 @@ from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 import pytesseract
 
-system_prompt = """
-        You are a general AI assistant. I will ask you a question.
-
-        First, explore your reasoning process step by step. Consider all relevant facts and possibilities.
-
-        Then, provide your answer using EXACTLY this format:
-
-        FINAL ANSWER: [ Your consice answer here]
-
-        Your FINAL ANSWER should be:
-        - For numbers: Just the number without commas or units (unless specified)
-        - For text: As few words as possible with no articles or abbreviations 
-        - For lists: Comma-separated values following the above rules
-
-        Important: The evaluation system will ONLY read what comes after "FINAL ANSWER:". Make sure your answer is correctly formatted.
-
-        """
 
 load_dotenv(r"C:\Projects\RAG_PoC\agents_course_hf\.env")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-vision_llm = ChatOpenAI(model="gpt-4o")
+vision_llm = ChatOpenAI(temperature=0)
 
 @tool
 def web_search(query: str) -> str:
-    """Search Tavily for a query and return maximum 3 results.
-    Args:
-        query: The search query."""
-    search_docs = TavilySearchResults(max_results=3).invoke(query=query)
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-            for doc in search_docs
-        ]
-    )
-    return {"web_results": formatted_search_docs}
+    """Search Tavily for a query and return summarized results."""
+    try:
+        # Perform the search using TavilySearchResults
+        search_docs = TavilySearchResults(max_results=3).invoke(query)
+        
+        # Format the results into a readable string
+        formatted_search_docs = "\n\n---\n\n".join(
+            [
+                f"Source: {doc.metadata.get('source', 'Unknown')}\n"
+                f"Page: {doc.metadata.get('page', 'N/A')}\n"
+                f"Content: {doc.page_content[:500]}..."  # Limit content to 500 characters
+                for doc in search_docs
+            ]
+        )
+        
+        return formatted_search_docs
+    except Exception as e:
+        return f"Error during web search: {str(e)}"
 
 
 @tool
@@ -197,17 +187,18 @@ def python_code_executor(code: str) -> str:
 
 @tool
 def wiki_search(query: str) -> str:
-    """Search Wikipedia for a query and return maximum 2 results.
-    Args:
-        query: The search query."""
-    search_docs = WikipediaLoader(query=query, load_max_docs=2).load()
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-            for doc in search_docs
-        ]
-    )
-    return {"wiki_results": formatted_search_docs}
+    """Search Wikipedia for a query and return summarized results."""
+    try:
+        search_docs = WikipediaLoader(query=query, load_max_docs=3).load()
+        summarized_results = []
+        for doc in search_docs:
+            content = doc.page_content
+            # Summarize or extract key sections
+            summarized_results.append(content[:500])  # First 500 characters as a fallback
+
+        return "\n\n---\n\n".join(summarized_results)
+    except Exception as e:
+        return f"Error during Wikipedia search: {str(e)}"
     
 
 @tool
@@ -632,8 +623,10 @@ def combine_images(
         return {"error": str(e)}
 
 
+with open("system_prompt.txt", "r") as f:
+    system_prompt = f.read()
 
-sys_msg = SystemMessage(system_prompt)
+sys_msg = SystemMessage(content=system_prompt)
 
 # retriever
 
@@ -650,7 +643,7 @@ vector_store = FAISS(
 
 create_retriever_tool = create_retriever_tool(
     retriever=vector_store.as_retriever(),
-    name="Question search", 
+    name="Question_search", 
     description="A tool to retrieve similar questions from a vector store."
 
 )
@@ -699,20 +692,22 @@ def build_graph():
             "messages": [chat_with_tools.invoke(state["messages"])]
         }
     
-    # def retriever(state: MessagesState):
-    #     """Retriever node"""
-    #     similar_question = vector_store.similarity_search(state["messages"][0].content)
-    #     example_msg = HumanMessage(
-    #         content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
-    #     )
-    #     return {"messages": [sys_msg] + state["messages"] + [example_msg]}
+    def retriever(state: MessagesState):
+        """Retriever node"""
+        similar_question = vector_store.similarity_search(state["messages"][0].content)
+        example_msg = HumanMessage(
+            content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
+        )
+        return {"messages": [sys_msg] + state["messages"] + [example_msg]}
 
     builder = StateGraph(MessagesState)
-    # builder.add_node("retriever", retriever)
+    builder.add_node("retriever", retriever)
     builder.add_node("assistant", assistant)
     builder.add_node("tools", ToolNode(tools))
-    builder.add_edge(START, "assistant")
-    # builder.add_edge("retriever", "assistant")
+
+
+    builder.add_edge(START, "retriever")
+    builder.add_edge("retriever", "assistant")
     builder.add_conditional_edges(
         "assistant",
         tools_condition,
@@ -723,7 +718,7 @@ def build_graph():
     return builder.compile()
 
 if __name__ == "__main__":
-    question = "When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect?"
+    question = "How many studio albums were published by Mercedes Sosa between 2000 and 2009 (included)? You can use the latest 2022 version of english wikipedia."
     # Build the graph
     graph = build_graph()
     # Run the graph

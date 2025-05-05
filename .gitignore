@@ -21,3 +21,8 @@ pptx/
 agents_course_hf/.env
 
 *sqlite
+
+agents_course_hf/Final_Assignment_Template/__pycache__/agent.cpython-310.pyc
+agents_course_hf/Final_Assignment_Template/__pycache__/image_processing.cpython-313.pyc
+agents_course_hf/Final_Assignment_Template/__pycache__/agent.cpython-310.pyc
+agents_course_hf/Final_Assignment_Template/__pycache__/*
