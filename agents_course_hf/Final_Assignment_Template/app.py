@@ -1,18 +1,11 @@
 import os
 import gradio as gr
 import requests
-import inspect
 import pandas as pd
-import re
-import json
-from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
-from tools import search_tool, analyze_image_tool
-from langgraph.graph import StateGraph, END, START
+from agent import build_graph
 from langgraph.graph.message import add_messages
+from langchain_core.messages import AnyMessage, HumanMessage
 from typing import TypedDict, Annotated, Optional
-from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, AIMessage
-from langgraph.prebuilt import ToolNode, tools_condition
 
 
 # (Keep Constants as is)
@@ -26,168 +19,19 @@ class AgentState(TypedDict):
 
 class BasicAgent:
     def __init__(self):
-        system_prompt = """
-        You are a general AI assistant. I will ask you a question.
-
-        First, explore your reasoning process step by step. Consider all relevant facts and possibilities.
-
-        Then, provide your answer using EXACTLY this format:
-
-        FINAL ANSWER: [Your concise answer]
-
-        Your FINAL ANSWER should be:
-        - For numbers: Just the number without commas or units (unless specified)
-        - For text: As few words as possible with no articles or abbreviations 
-        - For lists: Comma-separated values following the above rules
-
-        Important: The evaluation system will ONLY read what comes after "FINAL ANSWER:". Make sure your answer is correctly formatted.
-        """
-
-        self.chat = ChatOpenAI(temperature=0)
-        self.tools = [search_tool, analyze_image_tool]
-        self.chat_with_tools = self.chat.bind_tools(self.tools)
-        self.system_message = SystemMessage(content=system_prompt)
         print("BasicAgent initialized.")
+        self.graph = build_graph()
 
-    def __call__(self, question: str, task_id) -> str:
+
+    def __call__(self, question: str) -> str:
         """Processes the input question using the chat_with_tools object and returns the anwer""" 
-        try:
-            image_urls = re.findall(r'https?://\S+?(?:png|jpg|jpeg|gif)', question)
 
-            if image_urls:
-                print(f"Detected image URLs: {image_urls}")
-                image_descriptions = []
-
-                for url in image_urls:
-                    try: 
-                        image_description = self.analyze_image_tool(url)
-                        image_descriptions.append(f"Image analysis: {image_description}")
-                    except Exception as e: 
-                        image_descriptions.append(f"Couldn't analyze image {url}: {e}")
-
-                enhanced_question = question + "\n\n" + "\n".join(image_descriptions)
-                human_message = HumanMessage(content=enhanced_question)
-            else:
-                if any(keyword in question.lower() for keyword in ["how many", "who", "what", "when", "where", "which"]):
-                    # For factual questions, add specific instructions to use tools
-                    question = f"This is a factual question that requires using the search tool to find accurate information: {question}"
-                    print("Added search instruction to question")
-
-                human_message = HumanMessage(content=question)
-
-            messages = [
-                self.system_message,
-                human_message
-            ]
-
-            response = self.chat_with_tools.invoke(messages)
-
-            content = response.content or ""
-
-            # Handle tool calls if present
-            if hasattr(response, 'additional_kwargs') and 'tool_calls' in response.additional_kwargs:
-                tool_calls = response.additional_kwargs['tool_calls']
-                print(f"Tool call detected: {tool_calls}")
-                
-                # Process tool calls and add results to messages
-                tool_results = []
-                for tool_call in tool_calls:
-                    tool_name = tool_call.get('function', {}).get('name')
-                    if not tool_name:
-                        continue
-                        
-                    # Extract the arguments
-                    tool_args_str = tool_call.get('function', {}).get('arguments', '{}')
-                    try:
-                        tool_args = json.loads(tool_args_str)
-                        
-                        # Execute the appropriate tool
-                        if tool_name == "duckduckgo_search" and 'query' in tool_args:
-                            result = search_tool.func(tool_args['query'])
-                            tool_results.append(f"Search result: {result}")
-                        elif tool_name == "analyze_image" and 'image_url' in tool_args:
-                            result = analyze_image_tool.func(tool_args['image_url'])
-                            tool_results.append(f"Image analysis: {result}")
-                            
-                    except json.JSONDecodeError:
-                        print(f"Could not parse tool arguments: {tool_args_str}")
-                
-                # If we have tool results, send a follow-up to process them
-                if tool_results:
-                    follow_up = f"Based on these tool results, please answer the original question:\n\n{question}\n\nTool Results:\n" + "\n".join(tool_results)
-                    follow_up_message = HumanMessage(content=follow_up)
-                    messages.append(follow_up_message)
-                    response = self.chat_with_tools.invoke(messages)
-                    content = response.content or ""
-
-            # task_id_match = re.search(r"task_id:\s*(\w+)", question, re.IGNORECASE)
-            # task_id = task_id_match.group(1) if task_id_match else "unknown_task_id"
-
-            final_answer_match = re.search(r"FINAL ANSWER:\s*(.*?)(?:\n|$)", content, re.IGNORECASE | re.DOTALL)
-            model_answer = final_answer_match.group(1).strip() if final_answer_match else "No answer found."
-
-            reasoning = content.split("FINAL ANSWER:")[0].strip() if "FINAL ANSWER:" in content else content.strip()
-
-            formatted_response = {
-                "task_id": task_id,
-                "model_answer": model_answer,
-                "reasoning_trace": reasoning
-            }
-
-            return json.dumps(formatted_response)
-        
-        except Exception as e:
-            print(f"Error in BasicAgent call: {e}")
-            return json.dumps({
-                "task_id": "error",
-                "model_answer": "Error processing the question",
-                "reasoning_trace": f"Error: {str(e)}"
-            })
-
-        except Exception as e:
-            print(f"Error in BasicAgent call: {e}")
-            return "Error processing the question."
+        messages = [HumanMessage(content=question)]
+        messages = self.graph.invoke({"messages": messages})
+        answer = messages['messages'][-1].content
+        return answer
     
 
-    def assistant(self, state: AgentState):
-        return {
-            "messages": [self.chat_with_tools.invoke(state["messages"])]
-        }
-    
-    def graph_builder(self):
-        # Graph
-        builder = StateGraph(AgentState)
-
-        def enhanced_assistant(state):
-            try:
-                messages = [self.system_message] + state["messages"]
-                response = self.chat_with_tools.invoke(messages)
-                return {"messages": [response]}
-            except Exception as e: 
-                print(f"Error in assistant node: {e}")
-                error_message = AIMessage(content=f"I'm sorry, I encountered an error: {e}")
-                return {"messages": [error_message]}
-            
-        # Nodes
-        builder.add_node("assistant", enhanced_assistant)
-        builder.add_node("tools", ToolNode(self.tools))
-
-        # Edges
-        builder.add_edge(START, "assistant")
-        builder.add_conditional_edges(
-            "assistant", 
-            tools_condition, 
-            {
-                "tools": "tools", 
-                "end": END
-                }
-            )
-        
-        builder.add_edge("tools", "assistant")
-        agent = builder.compile()
-
-        return agent
-    
 
 def run_and_submit_all( profile: gr.OAuthProfile | None):
     """
@@ -250,31 +94,10 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
             print(f"Skipping item with missing task_id or question: {item}")
             continue
         try:
-            # submitted_answer = agent(question_text, task_id)
-            # answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
-            # results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
-
-            # Parse the JSON returned by your agent
-            submitted_answer_json = agent(question_text, task_id)
-            # answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer_json})
-            # results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer_json})
-
-            try:
-                # Parse the JSON string to a dictionary
-                answer_dict = json.loads(submitted_answer_json)
-                answers_payload.append(answer_dict)  # Add the dictionary directly
-                results_log.append({
-                    "Task ID": task_id, 
-                    "Question": question_text, 
-                    "Submitted Answer": answer_dict.get("model_answer", "No answer found.")
-                })
-            except json.JSONDecodeError:
-                print(f"Error parsing JSON for task {task_id}: {submitted_answer_json}")
-                results_log.append({
-                    "Task ID": task_id, 
-                    "Question": question_text, 
-                    "Submitted Answer": "ERROR: Invalid JSON response"
-                })
+            # In run_and_submit_all function:
+            submitted_answer = agent(question_text)
+            answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
+            results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
         except Exception as e:
              print(f"Error running agent on task {task_id}: {e}")
              results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": f"AGENT ERROR: {e}"})
@@ -284,7 +107,7 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
         return "Agent did not produce any answers to submit.", pd.DataFrame(results_log)
 
     # 4. Prepare Submission 
-    submission_data = {"username": username.strip(), "agent_code": agent_code, "answers": answers_payload}    
+    submission_data = {"username": username.strip(), "agent_code": agent_code, "answers": answers_payload}
     status_update = f"Agent finished. Submitting {len(answers_payload)} answers for user '{username}'..."
     print(status_update)
 
@@ -330,7 +153,6 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
         print(status_message)
         results_df = pd.DataFrame(results_log)
         return status_message, results_df
-
 
     
 # --- Build Gradio Interface using Blocks ---
