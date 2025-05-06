@@ -623,7 +623,7 @@ def combine_images(
         return {"error": str(e)}
 
 
-with open("system_prompt.txt", "r") as f:
+with open("agents_course_hf\Final_Assignment_Template\system_prompt.txt", "r") as f:
     system_prompt = f.read()
 
 sys_msg = SystemMessage(content=system_prompt)
@@ -634,12 +634,8 @@ embeddings = OpenAIEmbeddings()
 
 index = faiss.IndexFlatL2(len(embeddings.embed_query("hello world")))
 
-vector_store = FAISS(
-    embedding_function=embeddings,
-    index=index,
-    docstore=InMemoryDocstore(),
-    index_to_docstore_id={}
-)
+vector_store = FAISS.load_local(r"C:\Projects\RAG_PoC\agents_course_hf\Final_Assignment_Template\vector_store", embeddings, allow_dangerous_deserialization=True)
+
 
 create_retriever_tool = create_retriever_tool(
     retriever=vector_store.as_retriever(),
@@ -694,10 +690,18 @@ def build_graph():
     
     def retriever(state: MessagesState):
         """Retriever node"""
-        similar_question = vector_store.similarity_search(state["messages"][0].content)
-        example_msg = HumanMessage(
-            content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
+        similar_question = vector_store.similarity_search(
+            query=state["messages"][0].content,
+            k=1
         )
+        if not similar_question:
+            example_msg = HumanMessage(
+                content="No similar questions were found in the vector store."
+            )
+        else:
+            example_msg = HumanMessage(
+                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
+            )
         return {"messages": [sys_msg] + state["messages"] + [example_msg]}
 
     builder = StateGraph(MessagesState)

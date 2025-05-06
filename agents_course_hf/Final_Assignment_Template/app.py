@@ -1,9 +1,8 @@
 import os
-import inspect
 import gradio as gr
 import requests
 import pandas as pd
-import time
+import re
 from langchain_core.messages import HumanMessage
 from agent import build_graph
 
@@ -96,7 +95,9 @@ def run_and_submit_all( profile: gr.OAuthProfile | None):
         # time.sleep(10)
         
         try:
-            submitted_answer = agent(question_text)
+            response = agent(question_text)
+            match = re.search(r"FINAL ANSWER:\s*(.*)", response)
+            submitted_answer = match.group(1).strip() if match else response.strip()
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
         except Exception as e:

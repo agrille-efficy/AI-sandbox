@@ -22,7 +22,12 @@ agents_course_hf/.env
 
 *sqlite
 
+*pyc
+
 agents_course_hf/Final_Assignment_Template/__pycache__/agent.cpython-310.pyc
 agents_course_hf/Final_Assignment_Template/__pycache__/image_processing.cpython-313.pyc
-agents_course_hf/Final_Assignment_Template/__pycache__/agent.cpython-310.pyc
+
 agents_course_hf/Final_Assignment_Template/__pycache__/*
+agents_course_hf/Final_Assignment_Template/__pycache__/agent.cpython-310.pyc
+agents_course_hf/Final_Assignment_Template/vector_store/index.faiss
+agents_course_hf/Final_Assignment_Template/vector_store/index.pkl
