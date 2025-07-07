@@ -8,19 +8,17 @@ from langchain_community.tools.riza.command import ExecPython
 from langchain_community.document_loaders import WikipediaLoader, ArxivLoader
 from langchain_community.vectorstores import FAISS
 import faiss
-from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain.tools.retriever import create_retriever_tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 import requests
 import os
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
-from langgraph.graph import StateGraph, END, START, MessagesState
-from langgraph.graph.message import add_messages
-from typing import TypedDict, Annotated, Optional, Dict, Any, List 
+from langgraph.graph import StateGraph, START, MessagesState
+from typing import Optional, Dict, Any, List 
 import numpy as np
 from image_processing import *
-from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import ToolNode, tools_condition
 import pandas as pd
 import tempfile
@@ -722,10 +720,13 @@ def build_graph():
     return builder.compile()
 
 if __name__ == "__main__":
-    question = "How many studio albums were published by Mercedes Sosa between 2000 and 2009 (included)? You can use the latest 2022 version of english wikipedia."
+    question = "How many studio albums were published by Mercedes Sosa between 2000 and 2009 (included)? " \
+    "You can use the latest 2022 version of english wikipedia."
+
     # Build the graph
     graph = build_graph()
     # Run the graph
+    
     messages = [HumanMessage(content=question)]
     messages = graph.invoke({"messages": messages})
     for m in messages["messages"]:
